@@ -13,15 +13,15 @@ Este projeto fornece um módulo Python para gerenciar a execução assíncrona d
 ### Instalação diretamente do GitHub
 
 ```bash
-pip install git+https://github.com/tesouro/stn-job-manager.git
+pip install git+https://github.com/tesouro/stn-py-job-manager.git
 ```
 
 ### Instalação a partir do código fonte
 
 1. Clone o repositório:
    ```bash
-   git clone https://github.com/tesouro/stn-job-manager.git
-   cd stn-job-manager
+   git clone https://github.com/tesouro/stn-py-job-manager.git
+   cd stn-py-job-manager
    ```
 
 2. Instale as dependências:
@@ -47,7 +47,7 @@ Para mais detalhes, consulte a documentação do módulo.
 
 ## Contribuição
 
-Contribuições são bem-vindas! Por favor, abra uma issue ou envie um pull request no [repositório GitHub](https://github.com/tesouro/stn-job-manager).
+Contribuições são bem-vindas! Por favor, abra uma issue ou envie um pull request no [repositório GitHub](https://github.com/tesouro/stn-py-job-manager).
 
 ## Licença
 

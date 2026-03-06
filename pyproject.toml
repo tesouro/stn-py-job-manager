@@ -13,4 +13,4 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/tesouro/stn-job-manager"
+"Homepage" = "https://github.com/tesouro/stn-py-job-manager"
