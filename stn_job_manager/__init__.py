@@ -1,0 +1,139 @@
+"""
+Gerenciador de jobs para execução de cargas SIORG em background.
+
+Este módulo encapsula toda a lógica de gerenciamento de jobs assíncronos,
+incluindo modelos, armazenamento em memória e execução de scripts.
+"""
+
+import subprocess
+import sys
+import uuid
+import datetime
+import threading
+from enum import Enum
+from typing import Optional
+
+from pydantic import BaseModel
+
+
+# ---------------------------------------------------------------------------
+# Modelos
+# ---------------------------------------------------------------------------
+
+class StatusCarga(str, Enum):
+    """Status possíveis de uma carga."""
+    PENDENTE = "pendente"
+    EXECUTANDO = "executando"
+    CONCLUIDO = "concluido"
+    ERRO = "erro"
+
+
+class CargaInfo(BaseModel):
+    """Informações sobre um job de carga."""
+    job_id: str
+    tipo: str
+    status: StatusCarga
+    inicio: datetime.datetime
+    fim: Optional[datetime.datetime] = None
+    saida: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Gerenciador de Jobs
+# ---------------------------------------------------------------------------
+
+class JobManager:
+    """Gerencia a execução e o estado dos jobs de carga."""
+    
+    def __init__(self, timeout: int = 1800):
+        """
+        Inicializa o gerenciador de jobs.
+        
+        Args:
+            timeout: Timeout em segundos para execução de cada script (padrão: 30 min)
+        """
+        self._jobs: dict[str, CargaInfo] = {}
+        self._timeout = timeout
+    
+    def _rodar_script(self, script: str, job_id: str) -> None:
+        """Executa um script Python como subprocess e atualiza o job."""
+        job = self._jobs[job_id]
+        job.status = StatusCarga.EXECUTANDO
+
+        try:
+            resultado = subprocess.run(
+                [sys.executable, script],
+                capture_output=True,
+                text=True,
+                timeout=self._timeout,
+            )
+            job.saida = resultado.stdout + resultado.stderr
+            job.status = (
+                StatusCarga.CONCLUIDO if resultado.returncode == 0 else StatusCarga.ERRO
+            )
+        except subprocess.TimeoutExpired:
+            job.saida = f"ERRO: Timeout de {self._timeout // 60} minutos excedido."
+            job.status = StatusCarga.ERRO
+        except Exception as exc:
+            job.saida = f"ERRO inesperado: {exc}"
+            job.status = StatusCarga.ERRO
+        finally:
+            job.fim = datetime.datetime.now()
+    
+    def iniciar_carga(self, tipo: str, script: str) -> CargaInfo:
+        """
+        Cria um job e dispara a execução em uma thread.
+        
+        Args:
+            tipo: Tipo da carga (ex: "funcoes", "unidades")
+            script: Nome do script Python a ser executado
+            
+        Returns:
+            Informações do job criado
+        """
+        job_id = str(uuid.uuid4())
+        job = CargaInfo(
+            job_id=job_id,
+            tipo=tipo,
+            status=StatusCarga.PENDENTE,
+            inicio=datetime.datetime.now(),
+        )
+        self._jobs[job_id] = job
+
+        thread = threading.Thread(
+            target=self._rodar_script,
+            args=(script, job_id),
+            daemon=True
+        )
+        thread.start()
+
+        return job
+    
+    def consultar_job(self, job_id: str) -> Optional[CargaInfo]:
+        """
+        Consulta o status de um job pelo ID.
+        
+        Args:
+            job_id: ID do job a ser consultado
+            
+        Returns:
+            Informações do job ou None se não encontrado
+        """
+        return self._jobs.get(job_id)
+    
+    def listar_jobs(self) -> list[CargaInfo]:
+        """
+        Lista todos os jobs já disparados.
+        
+        Returns:
+            Lista de jobs ordenados do mais recente para o mais antigo
+        """
+        return sorted(self._jobs.values(), key=lambda j: j.inicio, reverse=True)
+
+
+# ---------------------------------------------------------------------------
+# Instância global
+# ---------------------------------------------------------------------------
+
+# Instância única do gerenciador de jobs para uso na API
+job_manager = JobManager()
