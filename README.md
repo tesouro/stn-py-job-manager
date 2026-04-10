@@ -69,7 +69,89 @@ job = job_manager.iniciar_carga(tipo="unidades", script="scripts/carga_unidades.
 pip install flask
 ```
 
-### Exemplo completo de API REST com Flask
+### Exemplo completo de API REST
+
+
+---
+
+## Integração com FastAPI
+
+### Instalação das dependências adicionais
+
+```bash
+pip install fastapi uvicorn
+```
+
+### Exemplo completo de API REST com FastAPI
+
+```python
+# app.py
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from stn_job_manager import job_manager, CargaInfo
+
+app = FastAPI(title="STN Job Manager")
+
+SCRIPTS: dict[str, str] = {
+    "funcoes": "scripts/carga_funcoes.py",
+    "unidades": "scripts/carga_unidades.py",
+    "pessoas": "scripts/carga_pessoas.py",
+}
+
+
+class JobIniciado(BaseModel):
+    job_id: str
+    status: str
+
+
+@app.post("/cargas/{tipo}", response_model=JobIniciado, status_code=202)
+def iniciar_carga(tipo: str):
+    """Inicia uma carga em background e retorna o job_id."""
+    script = SCRIPTS.get(tipo)
+    if script is None:
+        raise HTTPException(status_code=400, detail=f"Tipo de carga desconhecido: {tipo}")
+
+    job = job_manager.iniciar_carga(tipo=tipo, script=script)
+    return JobIniciado(job_id=job.job_id, status=job.status)
+
+
+@app.get("/cargas/{job_id}", response_model=CargaInfo)
+def consultar_carga(job_id: str):
+    """Retorna o status e a saída de um job específico."""
+    job = job_manager.consultar_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    return job
+
+
+@app.get("/cargas", response_model=list[CargaInfo])
+def listar_cargas():
+    """Lista todos os jobs registrados, do mais recente ao mais antigo."""
+    return job_manager.listar_jobs()
+```
+
+### Executando o servidor
+
+```bash
+uvicorn app:app --reload
+```
+
+### Testando os endpoints
+
+```bash
+# Inicia uma carga do tipo "funcoes"
+curl -X POST http://localhost:8000/cargas/funcoes
+
+# Consulta o status de um job (substitua <job_id> pelo valor retornado acima)
+curl http://localhost:8000/cargas/<job_id>
+
+# Lista todos os jobs
+curl http://localhost:8000/cargas
+```
+
+> O FastAPI gera automaticamente a documentação interativa em `http://localhost:8000/docs` (Swagger UI) e `http://localhost:8000/redoc`.
+
+## Integração com Flask
 
 ```python
 # app.py
