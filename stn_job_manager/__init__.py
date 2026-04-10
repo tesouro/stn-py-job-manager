@@ -5,13 +5,16 @@ Este módulo encapsula toda a lógica de gerenciamento de jobs assíncronos,
 incluindo modelos, armazenamento em memória e execução de scripts.
 """
 
+import contextlib
+import io
 import subprocess
 import sys
 import uuid
 import datetime
 import threading
+from collections.abc import Callable
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 
 from pydantic import BaseModel
 
@@ -80,14 +83,31 @@ class JobManager:
         finally:
             job.fim = datetime.datetime.now()
     
-    def iniciar_carga(self, tipo: str, script: str) -> CargaInfo:
+    def _rodar_funcao(self, fn: Callable[[], None], job_id: str) -> None:
+        """Executa uma função Python em thread e captura stdout/stderr."""
+        job = self._jobs[job_id]
+        job.status = StatusCarga.EXECUTANDO
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+                fn()
+            job.saida = buf.getvalue()
+            job.status = StatusCarga.CONCLUIDO
+        except Exception as exc:
+            job.saida = buf.getvalue() + f"\nERRO inesperado: {exc}"
+            job.status = StatusCarga.ERRO
+        finally:
+            job.fim = datetime.datetime.now()
+
+    def iniciar_job(self, tipo: str, script: Union[str, Callable[[], None]]) -> CargaInfo:
         """
         Cria um job e dispara a execução em uma thread.
-        
+
         Args:
             tipo: Tipo da carga (ex: "funcoes", "unidades")
-            script: Nome do script Python a ser executado
-            
+            script: Caminho para um script Python (.py) ou uma função callable
+                    sem argumentos a ser executada em background.
+
         Returns:
             Informações do job criado
         """
@@ -100,14 +120,19 @@ class JobManager:
         )
         self._jobs[job_id] = job
 
-        thread = threading.Thread(
-            target=self._rodar_script,
-            args=(script, job_id),
-            daemon=True
-        )
+        if callable(script):
+            target, args = self._rodar_funcao, (script, job_id)
+        else:
+            target, args = self._rodar_script, (script, job_id)
+
+        thread = threading.Thread(target=target, args=args, daemon=True)
         thread.start()
 
         return job
+
+    def iniciar_carga(self, tipo: str, script: Union[str, Callable[[], None]]) -> CargaInfo:
+        """Alias de iniciar_job mantido para retrocompatibilidade."""
+        return self.iniciar_job(tipo=tipo, script=script)
     
     def consultar_job(self, job_id: str) -> Optional[CargaInfo]:
         """

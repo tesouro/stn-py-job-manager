@@ -33,15 +33,23 @@ from stn_job_manager import JobManager
 
 manager = JobManager(timeout=1800)  # timeout em segundos (padrão: 30 min)
 
-# Inicia um job que executa o script scripts/carga_funcoes.py em background
-job = manager.iniciar_carga(tipo="funcoes", script="scripts/carga_funcoes.py")
+# Passando um caminho de script Python
+job = manager.iniciar_job(tipo="funcoes", script="scripts/carga_funcoes.py")
 print(job.job_id)    # UUID gerado automaticamente
 print(job.status)    # "pendente" → "executando" → "concluido" | "erro"
+
+# Passando uma função diretamente
+def processar_funcoes():
+    print("Iniciando processamento...")
+    # lógica aqui
+    print("Concluído.")
+
+job = manager.iniciar_job(tipo="funcoes", script=processar_funcoes)
 
 # Consulta o status de um job pelo ID
 job = manager.consultar_job(job.job_id)
 print(job.status)
-print(job.saida)     # stdout + stderr do script
+print(job.saida)     # stdout + stderr capturados da função ou do script
 
 # Lista todos os jobs (mais recentes primeiro)
 todos = manager.listar_jobs()
@@ -49,6 +57,19 @@ for j in todos:
     print(j.job_id, j.tipo, j.status)
 ```
 
+Arquivos de exemplo
+
+- `scripts/carga_funcoes.py`: script de exemplo que imprime progresso e conclui (executado via subprocess).
+- `examples/minha_carga_example.py`: exemplo executável que demonstra:
+    - iniciar um job passando um `callable` (`minha_carga`)
+    - iniciar um job passando um caminho de script (`scripts/carga_funcoes.py`)
+    - polling simples para aguardar conclusão e imprimir as saídas
+
+Para executar o exemplo:
+
+```bash
+python examples/minha_carga_example.py
+```
 ### Instância global
 
 O módulo já exporta uma instância pronta para uso direto em aplicações:
@@ -91,12 +112,23 @@ from pydantic import BaseModel
 from stn_job_manager import job_manager, CargaInfo
 
 app = FastAPI(title="STN Job Manager")
-
-SCRIPTS: dict[str, str] = {
+ 
+SCRIPTS: dict[str, object] = {
+    # pode ser caminho para .py (executado via subprocess)
     "funcoes": "scripts/carga_funcoes.py",
     "unidades": "scripts/carga_unidades.py",
-    "pessoas": "scripts/carga_pessoas.py",
+    # ou um callable Python definido abaixo (executado em thread)
 }
+
+
+def minha_carga():
+    print("Minha carga iniciada pelo endpoint FastAPI")
+    for i in range(3):
+        print(f"Passo {i+1}")
+
+
+# registra um callable para o tipo "minha"
+SCRIPTS["minha"] = minha_carga
 
 
 class JobIniciado(BaseModel):
@@ -106,12 +138,16 @@ class JobIniciado(BaseModel):
 
 @app.post("/cargas/{tipo}", response_model=JobIniciado, status_code=202)
 def iniciar_carga(tipo: str):
-    """Inicia uma carga em background e retorna o job_id."""
-    script = SCRIPTS.get(tipo)
-    if script is None:
+    """Inicia uma carga em background e retorna o job_id.
+
+    O valor em `SCRIPTS[tipo]` pode ser um `str` (caminho para um .py)
+    ou um `callable` (função Python sem argumentos).
+    """
+    script_or_fn = SCRIPTS.get(tipo)
+    if script_or_fn is None:
         raise HTTPException(status_code=400, detail=f"Tipo de carga desconhecido: {tipo}")
 
-    job = job_manager.iniciar_carga(tipo=tipo, script=script)
+    job = job_manager.iniciar_job(tipo=tipo, script=script_or_fn)
     return JobIniciado(job_id=job.job_id, status=job.status)
 
 
@@ -161,20 +197,32 @@ from stn_job_manager import job_manager
 app = Flask(__name__)
 
 
+def minha_carga():
+    print("Minha carga iniciada pelo endpoint Flask")
+    for i in range(3):
+        print(f"Passo {i+1}")
+
+
 @app.post("/cargas/<tipo>")
 def iniciar_carga(tipo: str):
-    """Inicia uma carga em background e retorna o job_id."""
+    """Inicia uma carga em background e retorna o job_id.
+
+    O dicionário abaixo pode conter caminhos para scripts ou funções callables
+    definidas neste módulo.
+    """
     scripts = {
         "funcoes": "scripts/carga_funcoes.py",
         "unidades": "scripts/carga_unidades.py",
         "pessoas": "scripts/carga_pessoas.py",
+        # registra uma função local para o tipo "minha"
+        "minha": minha_carga,
     }
 
-    script = scripts.get(tipo)
-    if script is None:
+    script_or_fn = scripts.get(tipo)
+    if script_or_fn is None:
         return jsonify({"erro": f"Tipo de carga desconhecido: {tipo}"}), 400
 
-    job = job_manager.iniciar_carga(tipo=tipo, script=script)
+    job = job_manager.iniciar_job(tipo=tipo, script=script_or_fn)
     return jsonify({"job_id": job.job_id, "status": job.status}), 202
 
 
@@ -258,9 +306,14 @@ curl http://localhost:5000/cargas
 
 | Método | Descrição |
 |---|---|
-| `iniciar_carga(tipo, script)` | Cria um job e executa o script em background. Retorna `CargaInfo`. |
+| `iniciar_job(tipo, script)` | Cria um job e executa o `script` (caminho `.py` ou `callable`) em background. Retorna `CargaInfo`. |
+| `iniciar_carga(tipo, script)` | Alias de `iniciar_job` mantido para retrocompatibilidade. |
 | `consultar_job(job_id)` | Retorna o `CargaInfo` do job ou `None` se não encontrado. |
 | `listar_jobs()` | Retorna todos os jobs ordenados do mais recente para o mais antigo. |
+
+O parâmetro `script` aceita:
+- `str` — caminho para um arquivo `.py` executado via `subprocess`
+- `Callable[[], None]` — função Python executada em thread; stdout/stderr são capturados automaticamente
 
 ### `CargaInfo`
 
