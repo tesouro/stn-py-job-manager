@@ -16,6 +16,12 @@ Este projeto fornece um módulo Python para gerenciar a execução assíncrona d
 pip install git+https://github.com/tesouro/stn-py-job-manager.git
 ```
 
+Para habilitar suporte opcional a Redis:
+
+```bash
+pip install "stn-job-manager[redis]"
+```
+
 ### Instalação a partir do código fonte
 
 ```bash
@@ -32,6 +38,9 @@ pip install -e .
 from stn_job_manager import JobManager
 
 manager = JobManager(timeout=1800)  # timeout em segundos (padrão: 30 min)
+
+# Opcional: armazenamento compartilhado em Redis (mantém jobs entre instâncias)
+# manager = JobManager(timeout=1800, redis_url="redis://localhost:6379/0")
 
 # Passando um caminho de script Python
 job = manager.iniciar_job(tipo="funcoes", script="scripts/carga_funcoes.py")
@@ -315,6 +324,44 @@ O parâmetro `script` aceita:
 - `str` — caminho para um arquivo `.py` executado via `subprocess`
 - `Callable[[], None]` — função Python executada em thread; stdout/stderr são capturados automaticamente
 
+Parâmetros opcionais de infraestrutura:
+- `redis_url: str | None` — ativa backend Redis para persistir e compartilhar jobs entre múltiplas instâncias.
+- `redis_prefix: str` — prefixo das chaves no Redis (padrão: `stn_job_manager`).
+
+Exemplo com Redis:
+
+```python
+from stn_job_manager import JobManager
+
+manager = JobManager(
+    timeout=1800,
+    redis_url="redis://localhost:6379/0",
+    redis_prefix="meu_servico_jobs",
+)
+
+Azure Cache for Redis
+
+Se estiver usando o Azure Cache for Redis (TLS obrigatório), use `rediss://` e a porta `6380`.
+Monte a variável de ambiente `REDIS_URL` assim (substitua `<PRIMARY_KEY>` e `<CACHE_NAME>`):
+
+```bash
+export REDIS_URL="rediss://:<PRIMARY_KEY>@<CACHE_NAME>.redis.cache.windows.net:6380/0"
+```
+
+No seu app (FastAPI/Flask) leia a variável e inicialize o `JobManager`:
+
+```python
+import os
+from stn_job_manager import JobManager
+
+manager = JobManager(redis_url=os.environ.get("REDIS_URL"))
+```
+
+Notas:
+- Azure exige TLS; use `rediss://` e porta `6380`.
+- Não compartilhe chaves em repositórios; prefira variáveis de ambiente ou Azure Key Vault.
+```
+
 ### `CargaInfo`
 
 | Campo | Tipo | Descrição |
@@ -340,6 +387,7 @@ O parâmetro `script` aceita:
 ## Dependências
 
 - [pydantic](https://docs.pydantic.dev/) >= 2.0.0
+- [redis-py](https://redis.readthedocs.io/) >= 5.0.0 (opcional, apenas se usar `redis_url`)
 
 ## Contribuição
 

@@ -12,5 +12,10 @@ dependencies = [
     "pydantic>=2.0.0"
 ]
 
+[project.optional-dependencies]
+redis = [
+    "redis>=5.0.0"
+]
+
 [project.urls]
 "Homepage" = "https://github.com/tesouro/stn-py-job-manager"
